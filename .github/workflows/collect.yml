@@ -1,0 +1,35 @@
+name: Maçları topla
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # her 30 dakikada bir (UTC)
+  workflow_dispatch:          # Actions sekmesinden elle çalıştırma
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: EA'dan veri çek
+        run: node scripts/collect.mjs
+      - name: Değişiklikleri kaydet
+        run: |
+          git config user.name "proclubs-bot"
+          git config user.email "proclubs-bot@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "Yeni veri yok"
+          else
+            git commit -m "Veri güncellendi: $(date -u +'%Y-%m-%d %H:%M')"
+            git push
+          fi
