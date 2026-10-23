@@ -1,0 +1,8 @@
+{
+  "platform": "common-gen5",
+  "clubs": [
+    { "name": "EAST UP FC", "clubId": null },
+    { "name": "SOKANTE FC", "clubId": null }
+  ],
+  "matchTypes": ["leagueMatch", "playoffMatch", "friendlyMatch"]
+}
