@@ -45,6 +45,7 @@ async function main() {
     clubs: await readJson(path.join(DATA, 'clubs.json'), []),
     matches: await readJson(path.join(DATA, 'matches.json'), []),
     members: await readJson(path.join(DATA, 'members.json'), {}),
+    opponents: await readJson(path.join(DATA, 'opponents.json'), {}),
   };
   const r = await collect({ config, existing, get: getJson, sleep });
   for (const [name, content] of Object.entries(r.files)) await writeFile(path.join(DATA, name), content);

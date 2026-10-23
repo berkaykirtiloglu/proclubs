@@ -65,10 +65,11 @@ export function normalizePlayer(id, p) {
     idle: num(p.realtimeidle),
     arch: num(p.archetypeid),
     sv: [p.ballDiveSaves, p.crossSaves, p.goodDirectionSaves, p.parrySaves, p.punchSaves, p.reflexSaves].map(num),
+    mea: [p.match_event_aggregate_0, p.match_event_aggregate_1, p.match_event_aggregate_2, p.match_event_aggregate_3].filter(Boolean).join(';'),
   };
 }
 
-const SCHEMA = 2;
+const SCHEMA = 3;
 
 export function normalizeMatch(raw, ourId, matchType) {
   ourId = String(ourId);
@@ -120,6 +121,7 @@ export async function fetchClubInfo(club, platform, get) {
   try {
     const o = (await get(`${API}/clubs/overallStats?platform=${platform}&clubIds=${club.clubId}`))?.[0];
     if (o) {
+      info.lastMatches = Array.from({ length: 10 }, (_, i) => [num(o['lastMatch' + i]), String(o['lastOpponent' + i] ?? '')]).filter(([r, id]) => r >= 0 && id);
       for (const k of ['gamesPlayed', 'gamesPlayedPlayoff', 'wins', 'ties', 'losses', 'goals', 'goalsAgainst', 'promotions',
         'relegations', 'wstreak', 'unbeatenstreak', 'skillRating', 'leagueAppearances', 'bestDivision', 'bestFinishGroup'])
         info[k] = o[k] == null ? null : num(o[k]);
@@ -191,8 +193,26 @@ export async function collect({ config, existing, get, sleep = (ms) => new Promi
     if (!Object.keys(club.info).length && old?.info) club.info = old.info;
   }
 
+  // Rakip kulüplerin genel istatistikleri (beceri puanı vb.); 3 günden eskiyse yenile
+  const opponents = { ...(existing.opponents || {}) };
+  const oppIds = [...new Set([...[...byKey.values()].map((m) => m.opponent?.id), ...clubs.flatMap((cl) => (cl.info?.lastMatches || []).map((x) => x[1]))].filter(Boolean))];
+  for (const id of oppIds) {
+    if (opponents[id] && Date.now() - (opponents[id].t || 0) < 3 * 864e5) continue;
+    try {
+      const o = (await get(`${API}/clubs/overallStats?platform=${platform}&clubIds=${id}`))?.[0];
+      if (!o) continue;
+      const x = { name: [...byKey.values()].find((m) => m.opponent?.id === id)?.opponent.name || opponents[id]?.name || null, t: Date.now() };
+      for (const k of ['gamesPlayed', 'gamesPlayedPlayoff', 'wins', 'ties', 'losses', 'goals', 'goalsAgainst', 'promotions', 'relegations', 'skillRating', 'bestDivision']) x[k] = o[k] == null ? null : num(o[k]);
+      opponents[id] = x;
+      await sleep(200);
+    } catch (e) {
+      log(`Rakip ${id}: ${e.message}`);
+    }
+  }
+
   const all = [...byKey.values()].sort((a, b) => b.ts - a.ts);
   const files = {
+    'opponents.json': JSON.stringify(opponents),
     'matches.json': JSON.stringify(all),
     'members.json': JSON.stringify(members),
     'clubs.json': JSON.stringify(clubs, null, 2),
