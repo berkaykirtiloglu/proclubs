@@ -4,7 +4,7 @@
     club: 'all', type: 'all', minGames: 1, group: 'genel', res: 'all', q: '', pairMin: 2,
     sorts: { players: { key: 'goals', dir: -1 }, pairs: { key: 'games', dir: -1 }, lineups: { key: 'games', dir: -1 }, opps: { key: 'games', dir: -1 } },
   };
-  let DATA = { clubs: [], matches: [], members: {}, meta: {} };
+  let DATA = { clubs: [], matches: [], members: {}, meta: {}, opponents: {} };
 
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -16,6 +16,16 @@
   const fmtInt = (v) => (v == null || isNaN(v) ? '–' : Math.round(v).toLocaleString('tr-TR'));
   const TYPE = { leagueMatch: 'Lig', playoffMatch: 'Playoff', friendlyMatch: 'Hazırlık' };
   const POS = { goalkeeper: 'KL', defender: 'DEF', midfielder: 'OS', forward: 'FV' };
+  // EA/FIFA mevki kodları (proPos) ve ülke kodları (proNationality)
+  const POSID = { 0: 'KL', 1: 'Libero', 2: 'SĞKB', 3: 'SĞB', 4: 'SĞ STP', 5: 'STP', 6: 'SL STP', 7: 'SLB', 8: 'SLKB', 9: 'SĞ DOS', 10: 'DOS', 11: 'SL DOS', 12: 'SĞO', 13: 'SĞ MO', 14: 'MO', 15: 'SL MO', 16: 'SLO', 17: 'SĞ OOS', 18: 'OOS', 19: 'SL OOS', 20: 'SĞ F', 21: 'SF', 22: 'SL F', 23: 'SĞK', 24: 'SĞ SNT', 25: 'SNT', 26: 'SL SNT', 27: 'SLK' };
+  const NAT = { 48: '🇹🇷 Türkiye', 21: '🇩🇪 Almanya', 14: '🏴 İngiltere', 18: '🇫🇷 Fransa', 27: '🇮🇹 İtalya', 45: '🇪🇸 İspanya', 34: '🇳🇱 Hollanda', 38: '🇵🇹 Portekiz', 52: '🇦🇷 Arjantin', 54: '🇧🇷 Brezilya', 7: '🇧🇪 Belçika', 13: '🇩🇰 Danimarka', 4: '🇦🇿 Azerbaycan' };
+  const natTxt = (v) => (v == null || v === '' ? '–' : NAT[+v] ?? `Ülke #${v}`);
+  const posIdTxt = (v) => (v == null || v === '' || +v < 0 ? '–' : POSID[+v] ?? `#${v}`);
+  const archTxt = (v) => (v ? `Arketip ${v}` : '–');
+  const LM = { 1: 'G', 2: 'M', 0: 'B', 3: 'B' };
+  const oppInfo = (id) => DATA.opponents?.[id] || null;
+  const mean = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
+  const std = (a) => { const m = mean(a); return a.length > 1 ? Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1)) : null; };
   const RES_TXT = { G: 'Galibiyet', B: 'Beraberlik', M: 'Mağlubiyet' };
   const DAYS = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
   const SAVE_TYPES = ['Dalış', 'Yan top', 'Doğru yön', 'Sektirme', 'Yumruk', 'Refleks'];
@@ -59,7 +69,7 @@
         if (!a) {
           a = { name: p.name, clubs: new Set(), games: 0, w: 0, d: 0, l: 0, goals: 0, assists: 0, shots: 0, passAtt: 0, passMade: 0,
             tackleAtt: 0, tackleMade: 0, red: 0, yellow: 0, mom: 0, saves: 0, conceded: 0, cleanSheet: 0, ratingSum: 0, best: 0,
-            secs: 0, idle: 0, dnf: 0, league: 0, playoff: 0, sv: [0, 0, 0, 0, 0, 0], pos: {}, ratings: [], hat: 0, gkGames: 0 };
+            secs: 0, idle: 0, dnf: 0, league: 0, playoff: 0, sv: [0, 0, 0, 0, 0, 0], pos: {}, arch: {}, ratings: [], hat: 0, gkGames: 0 };
           map.set(k, a);
         }
         a.clubs.add(m.clubId);
@@ -76,6 +86,7 @@
         if ((p.goals || 0) >= 3) a.hat++;
         (p.sv || []).forEach((v, i) => (a.sv[i] += v || 0));
         if (p.pos) a.pos[p.pos] = (a.pos[p.pos] || 0) + 1;
+        if (p.arch) a.arch[p.arch] = (a.arch[p.arch] || 0) + 1;
       }
     }
     return [...map.values()].map((a) => {
@@ -101,9 +112,28 @@
         svpg: a.gkGames ? a.saves / a.gkGames : null,
         idleMin: a.idle / 60,
         form: a.ratings.slice(-5),
+        last5: mean(a.ratings.slice(-5)),
+        trend: a.ratings.length >= 6 ? mean(a.ratings.slice(-5)) - a.ratingSum / a.games : null,
+        sd: std(a.ratings),
+        mainArch: Object.entries(a.arch).sort((x, y) => y[1] - x[1])[0]?.[0] ?? '',
         mainPos: Object.entries(a.pos).sort((x, y) => y[1] - x[1])[0]?.[0] ?? '',
       };
     });
+  }
+
+  // Oyuncu varken / yokken takım sonuçları (oyuncunun oynadığı kulüplerin maçları içinde)
+  function withWithout(ps, matches) {
+    for (const p of ps) {
+      const k = p.name.toLowerCase();
+      const pool = matches.filter((m) => p.clubs.has(m.clubId));
+      const without = pool.filter((m) => !m.players.some((x) => x.name.toLowerCase() === k));
+      p.woGames = without.length;
+      p.woWinPct = pct(without.filter((m) => m.result === 'G').length, without.length);
+      p.impact = p.woGames >= 2 && p.winPct != null && p.woWinPct != null ? p.winPct - p.woWinPct : null;
+      p.woGd = without.length ? mean(without.map((m) => m.gf - m.ga)) : null;
+      p.wGd = mean(pool.filter((m) => !without.includes(m)).map((m) => m.gf - m.ga));
+    }
+    return ps;
   }
 
   function streaks(matches) {
@@ -209,6 +239,8 @@
           <div><span>Gol (A/Y)</span><b>${i.goals ?? 0} / ${i.goalsAgainst ?? 0}</b></div>
           <div><span>Yükselme / Düşme</span><b>${i.promotions ?? 0} / ${i.relegations ?? 0}</b></div>
           <div><span>Playoff maçı</span><b>${i.gamesPlayedPlayoff ?? 0}</b></div>
+          ${i.wstreak != null ? `<div><span>Güncel seri (EA)</span><b>${i.wstreak} galibiyet · ${i.unbeatenstreak ?? 0} yenilmezlik</b></div>` : ''}
+          ${i.lastMatches?.length ? `<div class="span2"><span>EA'ya göre son maçlar (yeniden eskiye)</span><b class="form">${i.lastMatches.map(([r, o]) => { const t = LM[r]; const n = oppInfo(o)?.name; return t ? `<span class="badge ${t}" title="${esc(n || 'Rakip #' + o)}">${t}</span>` : `<span class="badge" title="Kod ${esc(r)}">?</span>`; }).join('')}</b></div>` : ''}
         </div></div>`;
     }).join('')}</div>`;
   }
@@ -234,6 +266,17 @@
       const dm = ms.filter((m) => new Date(m.ts * 1000).getDay() === i);
       return { n, g: dm.length, w: dm.filter((m) => m.result === 'G').length, gf: sum(dm, 'gf'), ga: sum(dm, 'ga') };
     }).filter((x) => x.g);
+    const SLOTS = [['00:00–03:00', 0, 3], ['03:00–12:00', 3, 12], ['12:00–18:00', 12, 18], ['18:00–21:00', 18, 21], ['21:00–24:00', 21, 24]];
+    const hours = SLOTS.map(([n, a, b]) => {
+      const hm = ms.filter((m) => { const h = new Date(m.ts * 1000).getHours(); return h >= a && h < b; });
+      return { n, g: hm.length, w: hm.filter((m) => m.result === 'G').length, gf: sum(hm, 'gf'), ga: sum(hm, 'ga') };
+    }).filter((x) => x.g);
+    // Rakip gücü (rakibin EA beceri puanı, son güncellemedeki değer)
+    const ourSkill = (id) => DATA.clubs.find((c) => c.clubId === id)?.info?.skillRating;
+    const rated = ms.map((m) => ({ m, os: oppInfo(m.opponent.id)?.skillRating, us: ourSkill(m.clubId) })).filter((x) => x.os != null);
+    const grp = (f) => { const g = rated.filter(f).map((x) => x.m); return { g: g.length, w: g.filter((m) => m.result === 'G').length, d: g.filter((m) => m.result === 'B').length, l: g.filter((m) => m.result === 'M').length }; };
+    const stronger = grp((x) => x.us != null && x.os > x.us), weaker = grp((x) => x.us != null && x.os <= x.us);
+    const oppAvg = mean(rated.map((x) => x.os));
     const chron = [...ms].sort((a, b) => a.ts - b.ts);
     const ratingPts = chron.slice(-25).map((m) => ({ v: m.players.length ? sum(m.players, 'rating') / m.players.length : 0, tip: `${shortDate(m.ts)} · ${m.gf}-${m.ga} ${m.opponent.name} · ort. ${fmt1(sum(m.players, 'rating') / (m.players.length || 1))}` }));
     const card = (label, value, sub = '') => `<div class="card"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
@@ -255,6 +298,12 @@
         ${card('Kırmızı kart', `${us('red')}<span class="card-red"></span>`, `Rakip ${them('red')}`)}
         ${card('Yarıda kalan', ms.filter((m) => m.dnf).length, 'Bağlantı kopması vb.')}
       </div>
+      ${rated.length ? `<h2>Rakip gücü</h2>
+      <div class="cards">
+        ${card('Rakiplerin ort. beceri puanı', fmtInt(oppAvg), `${rated.length} maçta veri var`)}
+        ${card('Bizden güçlülere karşı', `${stronger.w}G ${stronger.d}B ${stronger.l}M`, `Galibiyet ${fmtPct(pct(stronger.w, stronger.g))}`)}
+        ${card('Bizden zayıf/eşitlere karşı', `${weaker.w}G ${weaker.d}B ${weaker.l}M`, `Galibiyet ${fmtPct(pct(weaker.w, weaker.g))}`)}
+      </div>` : ''}
       <h2>Seriler</h2>
       <div class="cards">
         ${card('Güncel seri', st.curRes ? `${st.cur} ${badge(st.curRes)}` : '–')}
@@ -282,6 +331,7 @@
       </div>
       <div class="two">
         <div><h2>En sık skorlar</h2>${table('_scores', [{ key: 's', label: 'Skor' }, { key: 'n', label: 'Kez' }], topScores.map(([s, n]) => ({ s, n })))}</div>
+        <div><h2>Saatlere göre</h2>${table('_hours', [{ key: 'n', label: 'Saat' }, { key: 'g', label: 'Maç' }, { key: 'w', label: 'Galibiyet', f: (r) => `${r.w} <span class="muted small">${fmtPct(pct(r.w, r.g))}</span>` }, { key: 'gf', label: 'Atılan' }, { key: 'ga', label: 'Yenilen' }], hours)}</div>
         <div><h2>Günlere göre</h2>${table('_days', [{ key: 'n', label: 'Gün' }, { key: 'g', label: 'Maç' }, { key: 'w', label: 'Galibiyet', f: (r) => `${r.w} <span class="muted small">${fmtPct(pct(r.w, r.g))}</span>` }, { key: 'gf', label: 'Atılan' }, { key: 'ga', label: 'Yenilen' }], days)}</div>
       </div>`;
   }
@@ -315,7 +365,7 @@
         <summary>
           ${badge(m.result)}
           <div class="teams"><b>${esc(clubName(m.clubId))} – ${esc(m.opponent.name)}</b>
-            <span class="muted small">${TYPE[m.type] ?? m.type}${m.dnf ? ' · maç yarıda kaldı' : ''}</span></div>
+            <span class="muted small">${TYPE[m.type] ?? m.type}${m.dnf ? ' · maç yarıda kaldı' : ''}${oppInfo(m.opponent.id)?.skillRating != null ? ` · rakip beceri ${fmtInt(oppInfo(m.opponent.id).skillRating)}` : ''}</span></div>
           <span class="score">${m.gf} - ${m.ga}</span>
           <span class="when">${dateStr(m.ts)}</span>
         </summary>
@@ -399,6 +449,19 @@
       { key: 'cleanSheet', label: 'Gol yememe' },
       ...SAVE_TYPES.map((s, i) => ({ key: 'sv' + i, label: s, sv: (p) => p.sv[i], f: (p) => p.sv[i] })),
     ] },
+    analiz: { label: 'Analiz', cols: [name,
+      { key: 'games', label: 'Maç' },
+      { key: 'rating', label: 'Genel ort.', f: (p) => fmt1(p.rating) },
+      { key: 'last5', label: 'Son 5 ort.', f: (p) => fmt1(p.last5) },
+      { key: 'trend', label: 'Form trendi', title: 'Son 5 maç ortalaması − genel ortalama', f: (p) => p.trend == null ? '–' : `<span class="${p.trend >= 0.2 ? 'okc' : p.trend <= -0.2 ? 'errc' : ''}">${p.trend > 0 ? '▲ +' : p.trend < 0 ? '▼ ' : ''}${fmt1(p.trend)}</span>` },
+      { key: 'sd', label: 'İstikrar', title: 'Rating standart sapması; düşük = istikrarlı', f: (p) => p.sd == null ? '–' : `${fmt2(p.sd)} <span class="muted small">${p.sd < 0.7 ? 'istikrarlı' : p.sd > 1.1 ? 'dalgalı' : 'orta'}</span>` },
+      { key: 'winPct', label: 'Varken galibiyet', f: (p) => fmtPct(p.winPct) },
+      { key: 'woWinPct', label: 'Yokken galibiyet', f: (p) => p.woGames ? `${fmtPct(p.woWinPct)} <span class="muted small">${p.woGames} maç</span>` : '–' },
+      { key: 'impact', label: 'Etki', title: 'Varken − yokken galibiyet oranı (yokken en az 2 maç)', f: (p) => p.impact == null ? '–' : `<span class="${p.impact > 0 ? 'okc' : p.impact < 0 ? 'errc' : ''}">${p.impact > 0 ? '+' : ''}${Math.round(p.impact)} puan</span>` },
+      { key: 'wGd', label: 'Averaj/maç (varken)', f: (p) => p.wGd == null ? '–' : (p.wGd > 0 ? '+' : '') + fmt2(p.wGd) },
+      { key: 'woGd', label: 'Averaj/maç (yokken)', f: (p) => p.woGd == null ? '–' : (p.woGd > 0 ? '+' : '') + fmt2(p.woGd) },
+      { key: 'mainArch', label: 'Arketip', sv: (p) => +p.mainArch || 0, f: (p) => archTxt(p.mainArch) },
+    ] },
     diger: { label: 'Disiplin & Diğer', cols: [name,
       { key: 'games', label: 'Maç' },
       { key: 'league', label: 'Lig maçı' }, { key: 'playoff', label: 'Playoff maçı' },
@@ -413,7 +476,7 @@
     const ms = filtered();
     const el = $('#oyuncular');
     if (!ms.length) return (el.innerHTML = emptyHtml());
-    let ps = aggregatePlayers(ms).filter((p) => p.games >= state.minGames);
+    let ps = withWithout(aggregatePlayers(ms), ms).filter((p) => p.games >= state.minGames);
     const g = GROUPS[state.group];
     let cols = g.cols;
     if (state.group === 'kaleci') ps = ps.filter((p) => p.gkGames || p.saves);
@@ -488,14 +551,15 @@
     const map = new Map();
     for (const m of [...ms].sort((a, b) => b.ts - a.ts)) {
       const k = m.opponent.id || m.opponent.name;
-      const o = map.get(k) || { opp: m.opponent.name, games: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, last: `${m.gf}-${m.ga}`, lastTs: m.ts, scorers: {} };
+      const o = map.get(k) || { id: m.opponent.id, opp: m.opponent.name, games: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, last: `${m.gf}-${m.ga}`, lastTs: m.ts, scorers: {} };
       o.games++; o[m.result === 'G' ? 'w' : m.result === 'B' ? 'd' : 'l']++; o.gf += m.gf; o.ga += m.ga;
       (m.opp || []).forEach((p) => { if (p.goals) o.scorers[p.name] = (o.scorers[p.name] || 0) + p.goals; });
       map.set(k, o);
     }
     const rows = [...map.values()].map((o) => {
       const t = Object.entries(o.scorers).sort((a, b) => b[1] - a[1])[0];
-      return { ...o, diff: o.gf - o.ga, winPct: pct(o.w, o.games), top: t ? `${t[0]} (${t[1]})` : '' };
+      const oi = oppInfo(o.id);
+      return { ...o, diff: o.gf - o.ga, winPct: pct(o.w, o.games), top: t ? `${t[0]} (${t[1]})` : '', skill: oi?.skillRating ?? null, oppWin: oi ? pct(oi.wins, oi.gamesPlayed) : null };
     });
     el.innerHTML = `<p class="muted">Karşılaşılan her rakibe karşı sonuçlar. "Bize en çok gol atan" rakip oyuncu verisinden hesaplanır.</p>
       ${table('opps', [
@@ -507,7 +571,36 @@
         { key: 'diff', label: 'Averaj', f: (r) => (r.diff > 0 ? '+' : '') + r.diff },
         { key: 'lastTs', label: 'Son maç', f: (r) => `${r.last} <span class="muted small">${shortDate(r.lastTs)}</span>` },
         { key: 'top', label: 'Bize en çok gol atan', f: (r) => esc(r.top || '–') },
-      ], rows)}`;
+        { key: 'skill', label: 'Beceri puanı', title: 'Rakibin EA beceri puanı (son güncelleme)', f: (r) => fmtInt(r.skill) },
+        { key: 'oppWin', label: 'Rakibin galibiyet %', f: (r) => fmtPct(r.oppWin) },
+      ], rows)}
+      ${compareHtml(rows)}`;
+    const sel = $('#cmpSel');
+    if (sel) sel.addEventListener('change', () => { state.cmp = sel.value; renderRakipler(); });
+  }
+
+  function compareHtml(rows) {
+    const opts = rows.filter((r) => oppInfo(r.id));
+    const ours = DATA.clubs.filter((c) => c.info && Object.keys(c.info).length);
+    if (!opts.length || !ours.length) return '';
+    if (!opts.some((r) => r.id === state.cmp)) state.cmp = opts[0].id;
+    const o = oppInfo(state.cmp);
+    const sides = [...ours.map((c) => ({ name: c.name, ...c.info })), { name: o.name || 'Rakip', ...o }];
+    const rowsDef = [
+      ['Beceri puanı', (x) => fmtInt(x.skillRating)],
+      ['Maç', (x) => x.gamesPlayed ?? '–'],
+      ['G-B-M', (x) => `${x.wins ?? 0}-${x.ties ?? 0}-${x.losses ?? 0}`],
+      ['Galibiyet oranı', (x) => fmtPct(pct(x.wins, x.gamesPlayed))],
+      ['Maç başı gol', (x) => fmt2(div(x.goals, x.gamesPlayed))],
+      ['Maç başı yenilen', (x) => fmt2(div(x.goalsAgainst, x.gamesPlayed))],
+      ['Yükselme / Düşme', (x) => `${x.promotions ?? 0} / ${x.relegations ?? 0}`],
+      ['Playoff maçı', (x) => x.gamesPlayedPlayoff ?? '–'],
+    ];
+    return `<h2>Karşılaştır</h2>
+      <div class="toolbar"><label>Rakip <select id="cmpSel">${opts.map((r) => `<option value="${esc(r.id)}" ${r.id === state.cmp ? 'selected' : ''}>${esc(r.opp)}</option>`).join('')}</select></label>
+      <span class="muted small">EA'nın tüm zamanlar istatistikleri</span></div>
+      <div class="tablewrap"><table><thead><tr><th></th>${sides.map((x) => `<th>${esc(x.name)}</th>`).join('')}</tr></thead>
+      <tbody>${rowsDef.map(([l, f]) => `<tr><td>${l}</td>${sides.map((x) => `<td>${f(x)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
 
   // ================= Rekorlar =================
@@ -555,7 +648,7 @@
 
   // ================= EA sezon toplamları =================
   const MCOLS = [
-    ['name', 'Oyuncu'], ['proName', 'Pro adı'], ['proOverall', 'Genel güç'], ['proHeight', 'Boy'], ['favoritePosition', 'Mevki'],
+    ['name', 'Oyuncu'], ['proName', 'Pro adı'], ['proNationality', 'Uyruk'], ['proOverall', 'Genel güç'], ['proHeight', 'Boy'], ['proPos', 'Pro mevkisi'], ['favoritePosition', 'En çok oynadığı'],
     ['gamesPlayed', 'Maç'], ['winRate', 'Galibiyet %'], ['goals', 'Gol'], ['assists', 'Asist'], ['ratingAve', 'Ort. Rating'],
     ['manOfTheMatch', 'MOM'], ['shotSuccessRate', 'Şut isabeti %'], ['passesMade', 'Başarılı pas'], ['passSuccessRate', 'Pas %'],
     ['tacklesMade', 'Tackle'], ['tackleSuccessRate', 'Tackle %'], ['redCards', 'Kırmızı'], ['cleanSheetsDef', 'Gol yememe (DEF)'],
@@ -576,6 +669,8 @@
           if (k === 'prev') return `<td><span class="prevg">${Array.from({ length: 10 }, (_, i) => m['prevGoals' + (i + 1)]).filter((v) => v != null).map((v) => `<i class="${+v ? 'on' : ''}">${v}</i>`).join('')}</span></td>`;
           let v = m[k];
           if (k === 'favoritePosition') v = POS[v] ?? v;
+          if (k === 'proNationality') v = natTxt(v);
+          if (k === 'proPos') v = posIdTxt(v);
           if (k === 'ratingAve' && v !== '') v = fmt1(+v);
           if (k === 'proHeight' && v) v = `${v} cm`;
           return `<td>${esc(v ?? '–')}</td>`;
@@ -588,7 +683,7 @@
   function openPlayer(nm) {
     const key = nm.toLowerCase();
     const ms = filtered().filter((m) => m.players.some((p) => p.name.toLowerCase() === key)).sort((a, b) => b.ts - a.ts);
-    const agg = aggregatePlayers(ms).find((p) => p.name.toLowerCase() === key);
+    const agg = withWithout(aggregatePlayers(ms), filtered()).find((p) => p.name.toLowerCase() === key);
     const memb = Object.entries(DATA.members).flatMap(([cid, v]) => (v.members || []).filter((m) => m.name.toLowerCase() === key).map((m) => ({ ...m, club: clubName(cid) })));
     const dlg = $('#playerDlg');
     let html = `<div class="dlghead"><h2>${esc(nm)}</h2><button class="x" aria-label="Kapat">✕</button></div>`;
@@ -618,10 +713,14 @@
           ${card('Tackle başarısı', fmtPct(agg.tacklePct), `${agg.tackleMade}/${agg.tackleAtt}`)}
           ${card('Şut', agg.shots, `Dönüşüm ${fmtPct(agg.conv)}`)}
           ${card('Dakika', fmtInt(agg.mins), posTxt)}
+          ${card('Form trendi', agg.trend == null ? '–' : `${agg.trend > 0 ? '▲ +' : agg.trend < 0 ? '▼ ' : ''}${fmt1(agg.trend)}`, `Son 5 ort. ${fmt1(agg.last5)}`)}
+          ${card('İstikrar', fmt2(agg.sd), 'Rating sapması (düşük = istikrarlı)')}
+          ${card('Varken / yokken galibiyet', `${fmtPct(agg.winPct)} / ${fmtPct(agg.woWinPct)}`, agg.woGames ? `Yokken ${agg.woGames} maç` : 'Yokken maç yok')}
+          ${agg.mainArch ? card('Arketip', archTxt(agg.mainArch), Object.entries(agg.arch).map(([k, v]) => `#${k}: ${v} maç`).join(' · ')) : ''}
         </div>
         ${lineChart(pts, 'Maç maç rating')}
         ${memb.length ? `<h3>EA profili</h3><div class="kv wide">${memb.map((m) => `
-          <div><span>${esc(m.club)}</span><b>${esc(m.proName || '')} ${m.proOverall ? `· ${esc(m.proOverall)} güç` : ''} ${m.proHeight ? `· ${esc(m.proHeight)} cm` : ''} · ${esc(m.gamesPlayed)} maç, ${esc(m.goals)} gol, ${esc(m.assists)} asist</b></div>`).join('')}</div>` : ''}
+          <div><span>${esc(m.club)}</span><b>${esc(m.proName || '')} · ${esc(natTxt(m.proNationality))} · ${esc(posIdTxt(m.proPos))} ${m.proOverall ? `· ${esc(m.proOverall)} güç` : ''} ${m.proHeight ? `· ${esc(m.proHeight)} cm` : ''} · ${esc(m.gamesPlayed)} maç, ${esc(m.goals)} gol, ${esc(m.assists)} asist</b></div>`).join('')}</div>` : ''}
         ${mateRows.length ? `<h3>Birlikte oynadıkları</h3><div class="chips">${mateRows.map(([n, o]) => `<span class="chip">${pLink(n)} <span class="muted">${o.g} maç · ${fmtPct(pct(o.w, o.g))}</span></span>`).join('')}</div>` : ''}
         <h3>Maç geçmişi</h3>
         <div class="tablewrap"><table><thead><tr><th>Tarih</th><th>Maç</th><th>Sonuç</th><th>Mevki</th><th>Rating</th><th>Gol</th><th>Asist</th><th>Şut</th><th>Pas</th><th>Tackle</th></tr></thead><tbody>
@@ -689,6 +788,7 @@
     return {
       matches: [...by.values()].sort((a, b) => b.ts - a.ts),
       members: { ...(base.members || {}), ...(inc.members || {}) },
+      opponents: { ...(base.opponents || {}), ...(inc.opponents || {}) },
       clubs,
       added,
     };
@@ -728,12 +828,14 @@
       matches: await readRepoJson('matches.json', [], token),
       members: await readRepoJson('members.json', {}, token),
       clubs: await readRepoJson('clubs.json', [], token),
+      opponents: await readRepoJson('opponents.json', {}, token),
     };
     const m = mergeData(base, inc);
     const files = {
       'data/matches.json': JSON.stringify(m.matches),
       'data/members.json': JSON.stringify(m.members),
       'data/clubs.json': JSON.stringify(m.clubs, null, 2),
+      'data/opponents.json': JSON.stringify(m.opponents),
       'data/meta.json': JSON.stringify({ updated: Date.now(), total: m.matches.length }),
     };
     const ref = await gh('/git/ref/heads/main', {}, token);
@@ -786,7 +888,7 @@
       for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
       const inc = JSON.parse(await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
       const m = mergeData(DATA, inc);
-      DATA = { ...DATA, matches: m.matches, members: m.members, clubs: m.clubs, meta: { updated: inc.t || Date.now() } };
+      DATA = { ...DATA, matches: m.matches, members: m.members, clubs: m.clubs, opponents: m.opponents, meta: { updated: inc.t || Date.now() } };
       pending = inc;
       renderAll();
       $('#updated').textContent = 'Son güncelleme: ' + new Date(DATA.meta.updated).toLocaleString('tr-TR');
@@ -897,10 +999,10 @@
   }
 
   (async () => {
-    const [clubs, matches, members, meta] = await Promise.all([
-      load('clubs.json', []), load('matches.json', []), load('members.json', {}), load('meta.json', {}),
+    const [clubs, matches, members, meta, opponents] = await Promise.all([
+      load('clubs.json', []), load('matches.json', []), load('members.json', {}), load('meta.json', {}), load('opponents.json', {}),
     ]);
-    DATA = { clubs, matches, members, meta };
+    DATA = { clubs, matches, members, meta, opponents };
     setupUi();
     renderAll();
     handleIncoming();

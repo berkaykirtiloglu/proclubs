@@ -20,6 +20,7 @@
       mom: num(p.mom) > 0 ? 1 : 0, saves: num(p.saves), conceded: num(p.goalsconceded), cleanSheet: num(p.cleansheetsany) > 0 ? 1 : 0,
       secs: num(p.secondsPlayed ?? p.realtimegame), real: num(p.realtimegame), idle: num(p.realtimeidle), arch: num(p.archetypeid),
       sv: [p.ballDiveSaves, p.crossSaves, p.goodDirectionSaves, p.parrySaves, p.punchSaves, p.reflexSaves].map(num),
+      mea: [p.match_event_aggregate_0, p.match_event_aggregate_1, p.match_event_aggregate_2, p.match_event_aggregate_3].filter(Boolean).join(';'),
     });
     const sumf = (l, f) => l.reduce((s, p) => s + p[f], 0);
     const agg = (l) => ({ shots: sumf(l, 'shots'), passAtt: sumf(l, 'passAtt'), passMade: sumf(l, 'passMade'), tackleAtt: sumf(l, 'tackleAtt'), tackleMade: sumf(l, 'tackleMade'), red: sumf(l, 'red'), yellow: sumf(l, 'yellow') });
@@ -30,7 +31,7 @@
       const players = Object.entries(raw.players?.[ourId] || {}).map(([i, p]) => np(i, p));
       const op = Object.entries((oppId && raw.players?.[oppId]) || {}).map(([i, p]) => np(i, p));
       return {
-        v: 2, key: raw.matchId + '_' + ourId, matchId: String(raw.matchId), ts: num(raw.timestamp), type, clubId: ourId,
+        v: 3, key: raw.matchId + '_' + ourId, matchId: String(raw.matchId), ts: num(raw.timestamp), type, clubId: ourId,
         opponent: { id: oppId ? String(oppId) : '', name: opp?.details?.name ?? 'Bilinmeyen rakip' },
         gf, ga, result: gf > ga ? 'G' : gf < ga ? 'M' : 'B', dnf: num(ours.winnerByDnf) > 0 || num(opp.winnerByDnf) > 0,
         us: agg(players), them: agg(op), players,
@@ -46,6 +47,7 @@
       try { const r = await get(`${API}/members/stats?platform=${P}&clubId=${club.clubId}`); if (r?.members) members[club.clubId] = { updated: Date.now(), members: r.members, positionCount: r.positionCount || null }; } catch (e) { /* devam */ }
       try {
         const o = (await get(`${API}/clubs/overallStats?platform=${P}&clubIds=${club.clubId}`))?.[0];
+        if (o) club.info.lastMatches = Array.from({ length: 10 }, (_, i) => [num(o['lastMatch' + i]), String(o['lastOpponent' + i] ?? '')]).filter(([r, id]) => r >= 0 && id);
         if (o) for (const k of ['gamesPlayed', 'gamesPlayedPlayoff', 'wins', 'ties', 'losses', 'goals', 'goalsAgainst', 'promotions', 'relegations', 'wstreak', 'unbeatenstreak', 'skillRating', 'leagueAppearances', 'bestDivision', 'bestFinishGroup']) club.info[k] = o[k] == null ? null : num(o[k]);
       } catch (e) { /* devam */ }
       try {
@@ -59,8 +61,21 @@
       } catch (e) { /* devam */ }
       clubs.push(club);
     }
+    const opponents = {};
+    const oppIds = [...new Set([...matches.map((m) => m.opponent.id), ...clubs.flatMap((c) => (c.info.lastMatches || []).map((x) => x[1]))].filter(Boolean))];
+    msg('Rakip kulüpler alınıyor… (' + oppIds.length + ')');
+    for (const id of oppIds) {
+      try {
+        const o = (await get(`${API}/clubs/overallStats?platform=${P}&clubIds=${id}`))?.[0];
+        if (o) {
+          const x = { name: matches.find((m) => m.opponent.id === id)?.opponent.name || null, t: Date.now() };
+          for (const k of ['gamesPlayed', 'gamesPlayedPlayoff', 'wins', 'ties', 'losses', 'goals', 'goalsAgainst', 'promotions', 'relegations', 'skillRating', 'bestDivision']) x[k] = o[k] == null ? null : num(o[k]);
+          opponents[id] = x;
+        }
+      } catch (e) { /* devam */ }
+    }
     if (!matches.length && !Object.keys(members).length) throw new Error('EA hiç veri döndürmedi.');
-    const s = new Blob([JSON.stringify({ t: Date.now(), matches, members, clubs })]).stream().pipeThrough(new CompressionStream('gzip'));
+    const s = new Blob([JSON.stringify({ t: Date.now(), matches, members, clubs, opponents })]).stream().pipeThrough(new CompressionStream('gzip'));
     const buf = new Uint8Array(await new Response(s).arrayBuffer());
     let bin = ''; for (const b of buf) bin += String.fromCharCode(b);
     msg('Veriler alındı (' + matches.length + ' maç). Siteye dönülüyor…');
