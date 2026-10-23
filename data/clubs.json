@@ -2,11 +2,61 @@
   {
     "name": "EAST UP FC",
     "clubId": "1732220",
-    "platform": "common-gen5"
+    "platform": "common-gen5",
+    "info": {
+      "gamesPlayed": 26,
+      "gamesPlayedPlayoff": 3,
+      "wins": 10,
+      "ties": 2,
+      "losses": 14,
+      "goals": 47,
+      "goalsAgainst": 65,
+      "promotions": 1,
+      "relegations": 0,
+      "wstreak": 1,
+      "unbeatenstreak": 1,
+      "skillRating": 1410,
+      "leagueAppearances": 23,
+      "bestDivision": null,
+      "bestFinishGroup": null,
+      "currentDivision": 12,
+      "points": 0,
+      "stadium": "1. Kademe Stady",
+      "colors": [
+        "#f2f2f2",
+        "#582063"
+      ],
+      "crestAssetId": "99160918"
+    }
   },
   {
     "name": "SOKANTE FC",
     "clubId": "1677946",
-    "platform": "common-gen5"
+    "platform": "common-gen5",
+    "info": {
+      "gamesPlayed": 12,
+      "gamesPlayedPlayoff": 5,
+      "wins": 6,
+      "ties": 1,
+      "losses": 5,
+      "goals": 20,
+      "goalsAgainst": 18,
+      "promotions": 0,
+      "relegations": 0,
+      "wstreak": 1,
+      "unbeatenstreak": 2,
+      "skillRating": 1506,
+      "leagueAppearances": 7,
+      "bestDivision": 6,
+      "bestFinishGroup": 5,
+      "currentDivision": 12,
+      "points": 9,
+      "stadium": "1. Kademe Stady",
+      "colors": [
+        "#b11536",
+        "#f2f2f2"
+      ],
+      "crestAssetId": "99110221"
+    }
   }
 ]
