@@ -22,7 +22,7 @@
   const natTxt = (v) => (v == null || v === '' ? '–' : NAT[+v] ?? `Ülke #${v}`);
   const posIdTxt = (v) => (v == null || v === '' || +v < 0 ? '–' : POSID[+v] ?? `#${v}`);
   const archTxt = (v) => (v ? `Arketip ${v}` : '–');
-  const LM = { 1: 'G', 2: 'M', 0: 'B', 3: 'B' };
+  const LM = { 1: 'G', 2: 'M', 3: 'B' };
   const oppInfo = (id) => DATA.opponents?.[id] || null;
   const mean = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
   const std = (a) => { const m = mean(a); return a.length > 1 ? Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1)) : null; };
