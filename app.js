@@ -203,13 +203,11 @@
         <div class="kit" style="background:linear-gradient(90deg, ${esc(col)} 50%, ${esc(col2)} 50%)"></div>
         <div class="clubhead"><b>${esc(c.name)}</b>${i.stadium ? `<span class="muted small">${esc(i.stadium)}</span>` : ''}</div>
         <div class="kv">
-          ${i.currentDivision != null ? `<div><span>Lig seviyesi</span><b>${i.currentDivision}. Lig</b></div>` : ''}
           ${i.skillRating != null ? `<div><span>Beceri puanı</span><b>${fmtInt(i.skillRating)}</b></div>` : ''}
           <div><span>Tüm zamanlar</span><b>${i.wins ?? 0}G ${i.ties ?? 0}B ${i.losses ?? 0}M</b></div>
           <div><span>Galibiyet oranı</span><b>${fmtPct(pct(i.wins, gp))}</b></div>
           <div><span>Gol (A/Y)</span><b>${i.goals ?? 0} / ${i.goalsAgainst ?? 0}</b></div>
           <div><span>Yükselme / Düşme</span><b>${i.promotions ?? 0} / ${i.relegations ?? 0}</b></div>
-          ${i.bestDivision != null ? `<div><span>En iyi lig</span><b>${i.bestDivision}. Lig</b></div>` : ''}
           <div><span>Playoff maçı</span><b>${i.gamesPlayedPlayoff ?? 0}</b></div>
         </div></div>`;
     }).join('')}</div>`;
