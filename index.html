@@ -21,6 +21,7 @@
           <option value="playoffMatch">Playoff</option>
           <option value="friendlyMatch">Hazırlık</option>
         </select>
+        <button id="updBtn" class="btn primary">↻ Güncelle</button>
       </div>
       <nav class="tabs" id="tabs">
         <button data-tab="ozet" class="active">Özet</button>
@@ -35,6 +36,7 @@
   </header>
 
   <main class="wrap">
+    <div id="banner" class="banner" hidden></div>
     <section id="ozet" class="tab active"></section>
     <section id="maclar" class="tab"></section>
     <section id="oyuncular" class="tab"></section>
@@ -44,6 +46,7 @@
     <section id="sezon" class="tab"></section>
   </main>
   <dialog id="playerDlg"></dialog>
+  <dialog id="updDlg"></dialog>
 
   <footer class="wrap muted small">
     Veriler EA'nın herkese açık Pro Clubs servisinden otomatik toplanır. Takip başladıktan sonraki maçlar kaydedilir.

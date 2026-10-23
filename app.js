@@ -653,6 +653,223 @@
     tip.style.top = Math.max(8, e.clientY - r.height - 14) + 'px';
   });
 
+  // ================= Güncelleme (yer imi + GitHub kaydı) =================
+  const REPO = (() => {
+    const h = location.hostname;
+    if (h.endsWith('.github.io')) return { owner: h.split('.')[0], repo: location.pathname.split('/')[1] || 'proclubs' };
+    return { owner: 'berkaykirtiloglu', repo: 'proclubs' };
+  })();
+  const EA_URL = (id) => `https://proclubs.ea.com/api/fc/clubs/info?platform=common-gen5&clubIds=${id}`;
+  const SITE_URL = location.origin + location.pathname;
+  const store = {
+    get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch { /* yok */ } },
+  };
+  let pending = null; // EA'dan gelen ama henüz kaydedilmemiş veri
+
+  function banner(html, kind = 'info') {
+    const b = $('#banner');
+    b.className = 'banner ' + kind;
+    b.innerHTML = html;
+    b.hidden = !html;
+  }
+
+  function mergeData(base, inc) {
+    const by = new Map((base.matches || []).map((m) => [m.key, m]));
+    let added = 0;
+    for (const m of inc.matches || []) {
+      const o = by.get(m.key);
+      if (!o) added++;
+      if (!o || (o.v || 1) <= (m.v || 1)) by.set(m.key, m);
+    }
+    const clubs = [...(base.clubs || [])];
+    for (const c of inc.clubs || []) {
+      const i = clubs.findIndex((x) => x.clubId === c.clubId);
+      const merged = { ...(i >= 0 ? clubs[i] : {}), ...c, info: c.info && Object.keys(c.info).length ? c.info : (i >= 0 ? clubs[i].info : {}) };
+      if (i >= 0) clubs[i] = merged; else clubs.push(merged);
+    }
+    return {
+      matches: [...by.values()].sort((a, b) => b.ts - a.ts),
+      members: { ...(base.members || {}), ...(inc.members || {}) },
+      clubs,
+      added,
+    };
+  }
+
+  async function gh(path, opts = {}, token) {
+    const r = await fetch(`https://api.github.com/repos/${REPO.owner}/${REPO.repo}${path}`, {
+      ...opts,
+      headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) },
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      const e = new Error(`GitHub ${r.status}: ${t.slice(0, 160)}`);
+      e.status = r.status;
+      throw e;
+    }
+    return r.status === 204 ? null : r.json();
+  }
+
+  async function readRepoJson(file, fallback, token) {
+    try {
+      const r = await fetch(`https://api.github.com/repos/${REPO.owner}/${REPO.repo}/contents/data/${file}?ref=main&t=${Date.now()}`, {
+        headers: { Accept: 'application/vnd.github.raw+json', Authorization: `Bearer ${token}` },
+      });
+      if (r.status === 404) return fallback;
+      if (!r.ok) throw new Error('GitHub ' + r.status);
+      return await r.json();
+    } catch (e) {
+      if (String(e.message).includes('401')) throw e;
+      return fallback;
+    }
+  }
+
+  async function commitData(inc, token, tries = 2) {
+    // En güncel veriyi GitHub'dan oku (Pages önbelleğine güvenme), birleştir, tek commit at.
+    const base = {
+      matches: await readRepoJson('matches.json', [], token),
+      members: await readRepoJson('members.json', {}, token),
+      clubs: await readRepoJson('clubs.json', [], token),
+    };
+    const m = mergeData(base, inc);
+    const files = {
+      'data/matches.json': JSON.stringify(m.matches),
+      'data/members.json': JSON.stringify(m.members),
+      'data/clubs.json': JSON.stringify(m.clubs, null, 2),
+      'data/meta.json': JSON.stringify({ updated: Date.now(), total: m.matches.length }),
+    };
+    const ref = await gh('/git/ref/heads/main', {}, token);
+    const parent = await gh(`/git/commits/${ref.object.sha}`, {}, token);
+    const tree = await gh('/git/trees', { method: 'POST', body: JSON.stringify({
+      base_tree: parent.tree.sha,
+      tree: Object.entries(files).map(([path, content]) => ({ path, mode: '100644', type: 'blob', content })),
+    }) }, token);
+    const commit = await gh('/git/commits', { method: 'POST', body: JSON.stringify({
+      message: `Veri güncellendi (site butonu): ${m.added} yeni maç`, tree: tree.sha, parents: [ref.object.sha],
+    }) }, token);
+    try {
+      await gh('/git/refs/heads/main', { method: 'PATCH', body: JSON.stringify({ sha: commit.sha }) }, token);
+    } catch (e) {
+      if (tries > 1 && (e.status === 409 || e.status === 422)) return commitData(inc, token, tries - 1);
+      throw e;
+    }
+    return m;
+  }
+
+  async function savePending() {
+    const token = store.get('pc_token');
+    if (!pending) return;
+    if (!token) {
+      banner(`EA'dan <b>${pending.matches.length}</b> maç alındı ve aşağıda gösteriliyor, ama kalıcı kaydetmek için bu cihazda GitHub token gerekli.
+        <button class="btn" data-act="open-upd">Token gir ve kaydet</button>`, 'warn');
+      return;
+    }
+    banner('GitHub\'a kaydediliyor…', 'info');
+    try {
+      const m = await commitData(pending, token);
+      pending = null;
+      banner(`Kaydedildi: <b>${m.added}</b> yeni maç, toplam ${m.matches.length}. Site herkes için 1-2 dakika içinde güncellenir.`, 'ok');
+    } catch (e) {
+      const auth = e.status === 401 || e.status === 403 || e.status === 404;
+      banner(`Kaydedilemedi: ${esc(e.message)}${auth ? '<br>Token geçersiz ya da bu repoya yazma izni yok.' : ''}
+        <button class="btn" data-act="open-upd">Ayarları aç</button> <button class="btn" data-act="retry">Tekrar dene</button>`, 'err');
+    }
+  }
+
+  async function handleIncoming() {
+    const h = location.hash;
+    if (!h.startsWith('#ea=')) return;
+    history.replaceState(null, '', location.pathname);
+    try {
+      let b = h.slice(4).replace(/-/g, '+').replace(/_/g, '/');
+      while (b.length % 4) b += '=';
+      const bin = atob(b);
+      const u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const inc = JSON.parse(await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
+      const m = mergeData(DATA, inc);
+      DATA = { ...DATA, matches: m.matches, members: m.members, clubs: m.clubs, meta: { updated: inc.t || Date.now() } };
+      pending = inc;
+      renderAll();
+      $('#updated').textContent = 'Son güncelleme: ' + new Date(DATA.meta.updated).toLocaleString('tr-TR');
+      await savePending();
+    } catch (e) {
+      banner('Gelen veri okunamadı: ' + esc(e.message), 'err');
+    }
+  }
+
+  async function openUpdate() {
+    const dlg = $('#updDlg');
+    const token = store.get('pc_token');
+    let code = '';
+    try {
+      const src = await fetch('bookmarklet.js?v=' + Date.now()).then((r) => r.text());
+      const clubs = DATA.clubs.map((c) => ({ name: c.name, clubId: c.clubId }));
+      code = src.replace("'__SITE__'", JSON.stringify(SITE_URL)).replace('__CLUBS__', JSON.stringify(clubs));
+    } catch { /* yok */ }
+    const href = 'javascript:' + encodeURIComponent(code);
+    const firstId = DATA.clubs[0]?.clubId || '1732220';
+    dlg.innerHTML = `
+      <div class="dlghead"><h2>Verileri güncelle</h2><button class="x" aria-label="Kapat">✕</button></div>
+      <p class="muted">EA, sunucu bağlantılarını engellediği için güncelleme senin tarayıcından yapılır. Bilgisayardaki Chrome, Edge veya Firefox ile çalışır.</p>
+      <ol class="steps">
+        <li><b>Bir kerelik:</b> Aşağıdaki yeşil butonu tarayıcının yer imleri çubuğuna <b>sürükle-bırak</b>. (Yer imleri çubuğu görünmüyorsa Ctrl+Shift+B.)
+          <div class="bm-row"><a class="bm" href="${esc(href)}" onclick="event.preventDefault();alert('Bu butona tıklama; yer imleri çubuğuna sürükle.')">⚽ Pro Clubs Güncelle</a></div></li>
+        <li><b>Her güncellemede:</b> Aşağıdaki butonla EA sayfasını aç, açılınca yer imindeki <b>⚽ Pro Clubs Güncelle</b>'ye tıkla. Veriler toplanıp otomatik olarak bu siteye dönülür.
+          <div class="bm-row"><a class="btn primary" href="${EA_URL(firstId)}">EA sayfasını aç</a></div></li>
+      </ol>
+      <details class="fallback"><summary>Yer imi çalışmazsa</summary>
+        <p class="small muted">EA sayfasında F12 → Console sekmesini aç, kodu yapıştırıp Enter'a bas. (Chrome ilk seferde "allow pasting" yazmanı isteyebilir.)</p>
+        <button class="btn" data-act="copy-code">Kodu kopyala</button> <span id="copyMsg" class="small muted"></span>
+      </details>
+      <h3>GitHub token (kaydetmek için, bu cihazda bir kez)</h3>
+      <p class="small muted">Token olmadan veriler sadece senin ekranında görünür. Kalıcı kaydetmek için
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">buradan</a> bir <b>fine-grained token</b> oluştur:
+        Repository access → <b>Only select repositories → ${esc(REPO.repo)}</b>, Permissions → <b>Contents: Read and write</b>.
+        Token yalnızca bu tarayıcıda saklanır; kimseyle paylaşma.</p>
+      <div class="tokrow">
+        <input type="password" id="tokInp" placeholder="github_pat_…" value="" autocomplete="off">
+        <button class="btn primary" data-act="save-tok">Kaydet</button>
+        ${token ? '<button class="btn" data-act="del-tok">Token\'ı sil</button>' : ''}
+      </div>
+      <p id="tokMsg" class="small ${token ? 'okc' : 'muted'}">${token ? 'Bu cihazda kayıtlı bir token var.' : 'Bu cihazda token yok.'}</p>
+      ${pending ? '<p><button class="btn primary" data-act="retry">Bekleyen veriyi şimdi kaydet</button></p>' : ''}`;
+    dlg._code = code;
+    if (!dlg.open) dlg.showModal();
+  }
+
+  document.addEventListener('click', async (e) => {
+    const a = e.target.closest('[data-act]');
+    if (!a) return;
+    const act = a.dataset.act;
+    const dlg = $('#updDlg');
+    if (act === 'open-upd') openUpdate();
+    if (act === 'retry') { dlg.open && dlg.close(); savePending(); }
+    if (act === 'copy-code') {
+      try { await navigator.clipboard.writeText(dlg._code); $('#copyMsg').textContent = 'Kopyalandı.'; } catch { $('#copyMsg').textContent = 'Kopyalanamadı.'; }
+    }
+    if (act === 'del-tok') { store.set('pc_token', null); openUpdate(); }
+    if (act === 'save-tok') {
+      const v = $('#tokInp').value.trim();
+      if (!v) return;
+      $('#tokMsg').textContent = 'Kontrol ediliyor…';
+      try {
+        const repo = await fetch(`https://api.github.com/repos/${REPO.owner}/${REPO.repo}`, { headers: { Authorization: `Bearer ${v}`, Accept: 'application/vnd.github+json' } }).then((r) => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)));
+        if (!repo.permissions?.push) throw new Error('Bu token repoya yazamıyor (Contents: Read and write gerekli).');
+        store.set('pc_token', v);
+        $('#tokMsg').className = 'small okc';
+        $('#tokMsg').textContent = 'Token kaydedildi ve doğrulandı.';
+        if (pending) { dlg.close(); savePending(); }
+      } catch (err) {
+        $('#tokMsg').className = 'small errc';
+        $('#tokMsg').textContent = 'Token doğrulanamadı: ' + err.message;
+      }
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#updDlg .x')) $('#updDlg').close();
+  });
+
   // ================= Genel =================
   function emptyHtml() {
     return `<div class="empty">Bu filtre için kayıtlı maç yok.<br><span class="small">Maç oynandıktan ve veriler güncellendikten sonra burada görünecek.</span></div>`;
@@ -675,8 +892,9 @@
       document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === b.dataset.tab));
       history.replaceState(null, '', `#${b.dataset.tab}`);
     }));
+    $('#updBtn').addEventListener('click', openUpdate);
     const h = location.hash.slice(1);
-    if (h) document.querySelector(`#tabs button[data-tab="${h}"]`)?.click();
+    if (h && !h.startsWith('ea=')) document.querySelector(`#tabs button[data-tab="${h}"]`)?.click();
     if (DATA.meta.updated) $('#updated').textContent = 'Son güncelleme: ' + new Date(DATA.meta.updated).toLocaleString('tr-TR');
   }
 
@@ -687,5 +905,6 @@
     DATA = { clubs, matches, members, meta };
     setupUi();
     renderAll();
+    handleIncoming();
   })();
 })();
