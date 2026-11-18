@@ -6,39 +6,39 @@
     "info": {
       "lastMatches": [
         [
-          1,
-          "918940"
+          3,
+          "1067644"
+        ],
+        [
+          3,
+          "945025"
         ],
         [
           1,
-          "766167"
+          "1950032"
         ],
         [
-          2,
-          "1179340"
-        ],
-        [
-          1,
-          "2106145"
+          3,
+          "1452225"
         ],
         [
           1,
-          "1895400"
+          "1014289"
         ]
       ],
-      "gamesPlayed": 102,
+      "gamesPlayed": 107,
       "gamesPlayedPlayoff": 3,
-      "wins": 43,
-      "ties": 13,
+      "wins": 45,
+      "ties": 16,
       "losses": 46,
-      "goals": 217,
-      "goalsAgainst": 251,
+      "goals": 227,
+      "goalsAgainst": 258,
       "promotions": 5,
       "relegations": 2,
-      "wstreak": 2,
-      "unbeatenstreak": 2,
-      "skillRating": 1591,
-      "leagueAppearances": 99,
+      "wstreak": 0,
+      "unbeatenstreak": 7,
+      "skillRating": 1629,
+      "leagueAppearances": 104,
       "bestDivision": null,
       "bestFinishGroup": null,
       "currentDivision": 12,
